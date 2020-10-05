@@ -7,20 +7,22 @@ import (
 	"io"
 	"os"
 
-	"github.com/go-git/go-git/v5"
-
 	"github.com/ishansd94/terraform-go/executor"
 	"github.com/ishansd94/terraform-go/helpers"
+
+	"github.com/go-git/go-git/v5"
 )
 
 const (
 	TerrformBin = "terraform"
 
 	FlagAutoApprove = "-auto-approve"
-	FlagJSON    	= "-json"
+	FlagForceCopy 	= "-force-copy"
+	FlagJSON        = "-json"
 
 	OptionBackendConfig = "-backend-config"
 	OptionVar           = "-var"
+	OptionFromModule    = "-from-module"
 
 	OperationApply   = "apply"
 	OperationInit    = "init"
@@ -42,11 +44,15 @@ type TerraformRunner struct {
 	BackendConfig map[string]string
 	Writer        io.Writer
 	Executor      Executor
+	PrintOutput   bool
+	Debug         bool
 }
 
 type TerraformOptions struct {
-	Vars map[string]interface{}
+	Vars        map[string]interface{}
 	AutoApprove bool
+	ForceCopy   bool
+	FromModule  bool
 }
 
 func (cmd *TerraformRunner) Run() error {
@@ -60,24 +66,44 @@ func (cmd *TerraformRunner) Run() error {
 		}
 	}
 
-	_, err = git.PlainClone(cmd.Dir, false, &git.CloneOptions{
-		URL:      cmd.Module,
-		Progress: os.Stdout,
-	})
-
 	commands, err := cmd.Command()
 	if err != nil {
 		return err
 	}
 
-	fmt.Printf("%s %s", TerrformBin, commands)
+	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, commands))
 
-	_, err = cmd.Executor.Execute(TerrformBin, commands, "")
+	output, err := cmd.Executor.Execute(TerrformBin, commands, "")
 	if err != nil {
 		return err
 	}
 
+	if cmd.PrintOutput {
+		_, _ = io.WriteString(os.Stdout, string(*output))
+	}
+
 	return nil
+}
+
+func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
+
+	var output *[]byte
+	var err error
+	var v map[string]interface{}
+
+	commands := []string{OperationOutput, FlagJSON}
+
+	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, commands))
+
+	if output, err = cmd.Executor.Execute(TerrformBin, commands, ""); err != nil {
+		return nil, err
+	}
+
+	if err = json.Unmarshal(*output, &v); err != nil {
+		return nil, err
+	}
+
+	return &v, nil
 }
 
 func (cmd *TerraformRunner) Command() ([]string, error) {
@@ -113,29 +139,36 @@ func (cmd *TerraformRunner) Command() ([]string, error) {
 	return commands, nil
 }
 
-func getSupportedOperations() []string {
-	return []string{
-		OperationInit,
-		OperationApply,
-		OperationPlan,
-		OperationDestroy,
-	}
-}
-
 func (cmd *TerraformRunner) GenerateBackendOptions() []string {
 	var backend []string
 	for k, v := range cmd.BackendConfig {
-		backend = append(backend, OptionBackendConfig ,fmt.Sprintf("%s=%s", k, v))
+		backend = append(backend, OptionBackendConfig, fmt.Sprintf("%s=%s", k, v))
 	}
 	return backend
 }
 
 func (cmd *TerraformRunner) GenerateOptions() []string {
 	var options []string
+
 	switch cmd.Operation {
+	case OperationInit:
+		if cmd.Options.ForceCopy {
+			options = append(options, FlagForceCopy)
+		}
+		if cmd.Options.FromModule {
+
+			source := helpers.TrimString(cmd.Module, map[string]string{
+				":": "/",
+				"https///" : "",
+				"git@" : "",
+				".git": "",
+			})
+			options = append(options, OptionFromModule, source)
+		}
+
 	case OperationApply, OperationDestroy, OperationPlan:
 		for k, v := range cmd.Options.Vars {
-			options = append(options, OptionVar ,fmt.Sprintf("%s=%s", k, v))
+			options = append(options, OptionVar, fmt.Sprintf("%s=%x", k, v))
 		}
 
 		if cmd.Options.AutoApprove {
@@ -146,49 +179,78 @@ func (cmd *TerraformRunner) GenerateOptions() []string {
 	return options
 }
 
-func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
-
-	var output *[]byte
+func (cmd *TerraformRunner) GetModule() error {
 	var err error
-	var v map[string]interface{}
 
-	commands := []string{OperationOutput, FlagJSON}
-
-	if output, err = cmd.Executor.Execute(TerrformBin, commands, ""); err != nil{
-		return nil, err
+	if _, err = os.Stat(cmd.Dir); !os.IsNotExist(err) {
+		cmd.debug("deleting existing module")
+		if err = cmd.cleanModule(); err != nil {
+			return err
+		}
 	}
 
-	if err = json.Unmarshal(*output, &v); err != nil {
-		return nil, err
+	cmd.debug("cloning module")
+	_, err = git.PlainClone(cmd.Dir, false, &git.CloneOptions{
+		URL:      cmd.Module,
+	})
+	if err != nil {
+		return err
 	}
 
-	return &v, nil
+	return nil
 }
 
-// func main() {
-// 	var err error
-//
-// 	cmd := TerraformRunner{
-// 		Module:    "https://github.com/ishansd94/terraform-sample-module.git",
-// 		Dir:       "/tmp/zzzz",
-// 		Options: &TerraformOptions{
-// 			Vars: map[string]interface{}{
-// 				"foo": "foozz",
-// 				"bar": "barzz",
-// 			},
-// 			AutoApprove: true,
-// 		},
-// 	}
-//
-// 	cmd.Operation = OperationInit
-// 	err = cmd.Run()
-// 	fmt.Println(err)
-//
-// 	cmd.Operation = OperationApply
-// 	err = cmd.Run()
-// 	fmt.Println(err)
-//
-// 	out, err := cmd.Output()
-// 	fmt.Println(out)
-//
-// }
+func (cmd *TerraformRunner) cleanModule() error {
+	if err := os.RemoveAll(cmd.Dir); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getSupportedOperations() []string {
+	return []string{
+		OperationInit,
+		OperationApply,
+		OperationPlan,
+		OperationDestroy,
+	}
+}
+
+func (cmd *TerraformRunner) debug(msg string) {
+	if cmd.Debug {
+		fmt.Println(msg)
+	}
+}
+
+func main() {
+	var err error
+
+	cmd := TerraformRunner{
+		Module:      "https://github.com/ishansd94/terraform-sample-module.git",
+		Dir:         "/tmp/zzzz4",
+		PrintOutput: true,
+		Debug:       true,
+		Options: &TerraformOptions{
+			Vars: map[string]interface{}{
+				"str": "foooz",
+				"num": 2,
+			},
+			AutoApprove: true,
+		},
+	}
+
+	err  = cmd.GetModule()
+	fmt.Println(err)
+	
+	cmd.Operation = OperationInit
+	err = cmd.Run()
+	fmt.Println(err)
+
+	// cmd.Operation = OperationApply
+	// err = cmd.Run()
+	// fmt.Println(err)
+	//
+	// out, err := cmd.Output()
+	// fmt.Println(out)
+
+}
