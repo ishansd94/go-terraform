@@ -122,7 +122,7 @@ func getSupportedOperations() []string {
 func (cmd *TerraformRunner) GenerateBackendOptions() []string {
 	var backend []string
 	for k, v := range cmd.BackendConfig {
-		backend = append(backend, fmt.Sprintf("%s %s=%s", OptionBackendConfig, k, v))
+		backend = append(backend, OptionBackendConfig ,fmt.Sprintf("%s=%s", k, v))
 	}
 	return backend
 }
@@ -132,8 +132,7 @@ func (cmd *TerraformRunner) GenerateOptions() []string {
 	switch cmd.Operation {
 	case OperationApply, OperationDestroy, OperationPlan:
 		for k, v := range cmd.Options.Vars {
-			options = append(options, OptionVar)
-			options = append(options, fmt.Sprintf("%s=%s", k, v))
+			options = append(options, OptionVar ,fmt.Sprintf("%s=%s", k, v))
 		}
 
 		if cmd.Options.AutoApprove {
