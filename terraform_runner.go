@@ -59,10 +59,10 @@ func (cmd *TerraformRunner) Run() error {
 	return nil
 }
 
-func main() {
-	cmd := TerraformRunner{
-		Module: "https://github.com/ishansd94/terraform-sample-module.git",
-		Dir: "/tmp/zzzz",
-	}
-	_ = cmd.Run()
-}
+// func main() {
+// 	cmd := TerraformRunner{
+// 		Module: "https://github.com/ishansd94/terraform-sample-module.git",
+// 		Dir: "/tmp/zzzz",
+// 	}
+// 	_ = cmd.Run()
+// }
