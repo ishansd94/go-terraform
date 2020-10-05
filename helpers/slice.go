@@ -1,6 +1,6 @@
 package helpers
 
-func StringSliceContains(haystack []string, needle string ) bool {
+func InStringSlice(haystack []string, needle string ) bool {
 	for _,x := range haystack {
 		if x == needle {
 			return true
