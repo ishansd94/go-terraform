@@ -2,14 +2,21 @@ package executor
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 )
 
-func Execute(command string, args []string, prefix string) error {
+type DefaultExecute struct {
+	Writer       io.Writer
+	Dir 		string
+}
+
+func (d *DefaultExecute) Execute (command string, args []string, prefix string) error {
 	var err error
 
 	cmd := exec.Command(command, args...)
+	cmd.Dir	= d.Dir
 	cmd.Stderr = os.Stderr
 	cmd.Stdout = os.Stdout
 
