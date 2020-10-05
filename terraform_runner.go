@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ const (
 	TerrformBin = "terraform"
 
 	FlagAutoApprove = "-auto-approve"
+	FlagJSON    	= "-json"
 
 	OptionBackendConfig = "-backend-config"
 	OptionVar           = "-var"
@@ -24,10 +26,11 @@ const (
 	OperationInit    = "init"
 	OperationDestroy = "destroy"
 	OperationPlan    = "plan"
+	OperationOutput  = "output"
 )
 
 type Executor interface {
-	Execute(command string, args []string, prefix string) error
+	Execute(command string, args []string, prefix string) (*[]byte, error)
 }
 
 type TerraformRunner struct {
@@ -69,7 +72,7 @@ func (cmd *TerraformRunner) Run() error {
 
 	fmt.Printf("%s %s", TerrformBin, commands)
 
-	err = cmd.Executor.Execute(TerrformBin, commands, "")
+	_, err = cmd.Executor.Execute(TerrformBin, commands, "")
 	if err != nil {
 		return err
 	}
@@ -82,7 +85,7 @@ func (cmd *TerraformRunner) Command() ([]string, error) {
 	var backend []string
 	var options []string
 
-	if !helpers.StringSliceContains(getSupportedOperations(), cmd.Operation) {
+	if !helpers.InStringSlice(getSupportedOperations(), cmd.Operation) {
 		return nil, errors.New(fmt.Sprintf("'%s' is an invalid operation", cmd.Operation))
 	}
 
@@ -143,6 +146,25 @@ func (cmd *TerraformRunner) GenerateOptions() []string {
 	return options
 }
 
+func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
+
+	var output *[]byte
+	var err error
+	var v map[string]interface{}
+
+	commands := []string{OperationOutput, FlagJSON}
+
+	if output, err = cmd.Executor.Execute(TerrformBin, commands, ""); err != nil{
+		return nil, err
+	}
+
+	if err = json.Unmarshal(*output, &v); err != nil {
+		return nil, err
+	}
+
+	return &v, nil
+}
+
 // func main() {
 // 	var err error
 //
@@ -165,4 +187,8 @@ func (cmd *TerraformRunner) GenerateOptions() []string {
 // 	cmd.Operation = OperationApply
 // 	err = cmd.Run()
 // 	fmt.Println(err)
+//
+// 	out, err := cmd.Output()
+// 	fmt.Println(out)
+//
 // }
