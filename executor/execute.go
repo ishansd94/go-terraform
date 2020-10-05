@@ -5,6 +5,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	_ "github.com/sanity-io/litter"
 )
 
 type DefaultExecute struct {
