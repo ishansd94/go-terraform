@@ -222,35 +222,35 @@ func (cmd *TerraformRunner) debug(msg string) {
 	}
 }
 
-func main() {
-	var err error
-
-	cmd := TerraformRunner{
-		Module:      "https://github.com/ishansd94/terraform-sample-module.git",
-		Dir:         "/tmp/zzzz4",
-		PrintOutput: true,
-		Debug:       true,
-		Options: &TerraformOptions{
-			Vars: map[string]interface{}{
-				"str": "foooz",
-				"num": 2,
-			},
-			AutoApprove: true,
-		},
-	}
-
-	err  = cmd.GetModule()
-	fmt.Println(err)
-	
-	cmd.Operation = OperationInit
-	err = cmd.Run()
-	fmt.Println(err)
-
-	// cmd.Operation = OperationApply
-	// err = cmd.Run()
-	// fmt.Println(err)
-	//
-	// out, err := cmd.Output()
-	// fmt.Println(out)
-
-}
+// func main() {
+// 	var err error
+//
+// 	cmd := TerraformRunner{
+// 		Module:      "https://github.com/ishansd94/terraform-sample-module.git",
+// 		Dir:         "/tmp/zzzz4",
+// 		PrintOutput: true,
+// 		Debug:       true,
+// 		Options: &TerraformOptions{
+// 			Vars: map[string]interface{}{
+// 				"str": "foooz",
+// 				"num": 2,
+// 			},
+// 			AutoApprove: true,
+// 		},
+// 	}
+//
+// 	err  = cmd.GetModule()
+// 	fmt.Println(err)
+//
+// 	cmd.Operation = OperationInit
+// 	err = cmd.Run()
+// 	fmt.Println(err)
+//
+// 	cmd.Operation = OperationApply
+// 	err = cmd.Run()
+// 	fmt.Println(err)
+//
+// 	out, err := cmd.Output()
+// 	fmt.Println(out)
+//
+// }
