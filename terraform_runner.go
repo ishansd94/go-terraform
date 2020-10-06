@@ -24,10 +24,13 @@ const (
 	OptionVar           = "-var"
 	OptionFromModule    = "-from-module"
 
-	OperationApply   = "apply"
 	OperationInit    = "init"
-	OperationDestroy = "destroy"
+	OperationApply   = "apply"
 	OperationPlan    = "plan"
+	OperationDestroy = "destroy"
+	OperationTaint   = "taint"
+	OperationUntaint = "untaint"
+	OperationShow    = "show"
 	OperationOutput  = "output"
 )
 
@@ -37,22 +40,32 @@ type Executor interface {
 
 type TerraformRunner struct {
 	Module        string
-	Dir           string
 	Version       string
+	Directory     string
 	Operation     string
+
+	Inputs        map[string]interface{}
+	BackendConfig *TerraformBackendConfig
 	Options       *TerraformOptions
-	BackendConfig map[string]string
+	Flags         *TerraformFlags
+
 	Writer        io.Writer
 	Executor      Executor
+
 	PrintOutput   bool
 	Debug         bool
 }
 
+type TerraformFlags struct {
+	FlagForceCopy bool
+}
+
 type TerraformOptions struct {
-	Vars        map[string]interface{}
-	AutoApprove bool
-	ForceCopy   bool
 	FromModule  bool
+}
+
+type TerraformBackendConfig struct {
+
 }
 
 func (cmd *TerraformRunner) Run() error {
@@ -61,19 +74,19 @@ func (cmd *TerraformRunner) Run() error {
 
 	if cmd.Executor == nil {
 		cmd.Executor = &executor.DefaultExecute{
-			Dir:    cmd.Dir,
-			Writer: cmd.Writer,
+			Directory: cmd.Directory,
+			Writer:    cmd.Writer,
 		}
 	}
 
-	commands, err := cmd.Command()
+	args, err := cmd.GenerateArguments()
 	if err != nil {
 		return err
 	}
 
-	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, commands))
+	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, args))
 
-	output, err := cmd.Executor.Execute(TerrformBin, commands, "")
+	output, err := cmd.Executor.Execute(TerrformBin, args, "")
 	if err != nil {
 		return err
 	}
@@ -83,6 +96,157 @@ func (cmd *TerraformRunner) Run() error {
 	}
 
 	return nil
+}
+
+
+
+func (cmd *TerraformRunner) GenerateArguments() ([]string, error) {
+	var args []string
+	var backend []string
+	var flags  []string
+	var options []string
+	var vars  []string
+
+	if !helpers.InStringSlice(getSupportedOperations(), cmd.Operation) {
+		return nil, errors.New(fmt.Sprintf("'%s' is an invalid operation", cmd.Operation))
+	}
+
+	args = append(args, cmd.Operation)
+
+	if cmd.Flags != nil {
+		flags = cmd.GenerateFlags()
+	}
+
+	if cmd.Options != nil {
+		options = cmd.GenerateOptions()
+	}
+
+
+	switch cmd.Operation {
+	case OperationInit:
+		if cmd.BackendConfig != nil {
+			backend = cmd.GenerateBackendConfig()
+		}
+	case OperationApply, OperationPlan, OperationDestroy:
+		flags = append(flags, FlagAutoApprove)
+		if len(cmd.Inputs) > 0 {
+			vars = cmd.GenerateInputs()
+		}
+	}
+
+	if len(backend) > 0 {
+		args = append(args, backend...)
+	}
+
+	if len(flags) > 0 {
+		args = append(args, flags...)
+	}
+
+	if len(options) > 0 {
+		args = append(args, options...)
+	}
+
+	if len(vars) > 0 {
+		args = append(args, vars...)
+	}
+
+	return args, nil
+}
+
+func (cmd *TerraformRunner) GenerateBackendConfig() []string {
+	var backend []string
+
+	// TODO implementation
+
+	return backend
+}
+
+func (cmd *TerraformRunner) GenerateFlags() []string {
+	var flags []string
+
+	switch cmd.Operation {
+	case OperationInit:
+		if cmd.Flags.FlagForceCopy{
+			flags = append(flags, FlagForceCopy)
+		}
+	}
+
+	return flags
+}
+
+func (cmd *TerraformRunner)GenerateInputs() []string {
+	var vars []string
+
+	for k, v := range cmd.Inputs {
+		vars = append(vars, OptionVar, fmt.Sprintf("%s=%x", k, v))
+	}
+
+	return vars
+}
+
+func (cmd *TerraformRunner) GenerateOptions() []string {
+	var options []string
+
+	switch cmd.Operation {
+	case OperationInit:
+		if cmd.Options.FromModule {
+			source := helpers.TrimString(cmd.Module, map[string]string{
+				":": "/",
+				"https///" : "",
+				"git@" : "",
+				".git": "",
+			})
+			options = append(options, OptionFromModule, source)
+		}
+	}
+
+	return options
+}
+
+func (cmd *TerraformRunner) GetModule() error {
+	var err error
+
+	if _, err = os.Stat(cmd.Directory); !os.IsNotExist(err) {
+		cmd.debug("deleting existing module")
+		if err = cmd.cleanModule(); err != nil {
+			return err
+		}
+	}
+
+	cmd.debug("cloning module")
+	_, err = git.PlainClone(cmd.Directory, false, &git.CloneOptions{
+		URL:      cmd.Module,
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cmd *TerraformRunner) cleanModule() error {
+	if err := os.RemoveAll(cmd.Directory); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getSupportedOperations() []string {
+	return []string{
+		OperationInit,
+		OperationApply,
+		OperationPlan,
+		OperationDestroy,
+		OperationTaint,
+		OperationUntaint,
+		OperationShow,
+	}
+}
+
+func (cmd *TerraformRunner) debug(msg string) {
+	if cmd.Debug {
+		fmt.Println(msg)
+	}
 }
 
 func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
@@ -106,137 +270,31 @@ func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
 	return &v, nil
 }
 
-func (cmd *TerraformRunner) Command() ([]string, error) {
-	var commands []string
-	var backend []string
-	var options []string
-
-	if !helpers.InStringSlice(getSupportedOperations(), cmd.Operation) {
-		return nil, errors.New(fmt.Sprintf("'%s' is an invalid operation", cmd.Operation))
-	}
-
-	commands = append(commands, cmd.Operation)
-
-	switch cmd.Operation {
-	case OperationInit:
-		if len(cmd.BackendConfig) > 0 {
-			backend = cmd.GenerateBackendOptions()
-		}
-	}
-
-	if cmd.Options != nil {
-		options = cmd.GenerateOptions()
-	}
-
-	if len(backend) > 0 {
-		commands = append(commands, backend...)
-	}
-
-	if len(options) > 0 {
-		commands = append(commands, options...)
-	}
-
-	return commands, nil
-}
-
-func (cmd *TerraformRunner) GenerateBackendOptions() []string {
-	var backend []string
-	for k, v := range cmd.BackendConfig {
-		backend = append(backend, OptionBackendConfig, fmt.Sprintf("%s=%s", k, v))
-	}
-	return backend
-}
-
-func (cmd *TerraformRunner) GenerateOptions() []string {
-	var options []string
-
-	switch cmd.Operation {
-	case OperationInit:
-		if cmd.Options.ForceCopy {
-			options = append(options, FlagForceCopy)
-		}
-		if cmd.Options.FromModule {
-
-			source := helpers.TrimString(cmd.Module, map[string]string{
-				":": "/",
-				"https///" : "",
-				"git@" : "",
-				".git": "",
-			})
-			options = append(options, OptionFromModule, source)
-		}
-
-	case OperationApply, OperationDestroy, OperationPlan:
-		for k, v := range cmd.Options.Vars {
-			options = append(options, OptionVar, fmt.Sprintf("%s=%x", k, v))
-		}
-
-		if cmd.Options.AutoApprove {
-			options = append(options, FlagAutoApprove)
-		}
-	}
-
-	return options
-}
-
-func (cmd *TerraformRunner) GetModule() error {
-	var err error
-
-	if _, err = os.Stat(cmd.Dir); !os.IsNotExist(err) {
-		cmd.debug("deleting existing module")
-		if err = cmd.cleanModule(); err != nil {
-			return err
-		}
-	}
-
-	cmd.debug("cloning module")
-	_, err = git.PlainClone(cmd.Dir, false, &git.CloneOptions{
-		URL:      cmd.Module,
-	})
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (cmd *TerraformRunner) cleanModule() error {
-	if err := os.RemoveAll(cmd.Dir); err != nil {
-		return err
-	}
-	return nil
-}
-
-func getSupportedOperations() []string {
-	return []string{
-		OperationInit,
-		OperationApply,
-		OperationPlan,
-		OperationDestroy,
-	}
-}
-
-func (cmd *TerraformRunner) debug(msg string) {
-	if cmd.Debug {
-		fmt.Println(msg)
-	}
-}
-
 // func main() {
 // 	var err error
 //
 // 	cmd := TerraformRunner{
 // 		Module:      "https://github.com/ishansd94/terraform-sample-module.git",
-// 		Dir:         "/tmp/zzzz4",
+// 		Version: "master",
+// 		Directory:   "/tmp/test",
+//
 // 		PrintOutput: true,
 // 		Debug:       true,
-// 		Options: &TerraformOptions{
-// 			Vars: map[string]interface{}{
-// 				"str": "foooz",
-// 				"num": 2,
-// 			},
-// 			AutoApprove: true,
+//
+// 		Inputs: map[string]interface{}{
+// 			"str": "foooz",
+// 			"num": 2,
 // 		},
+//
+// 		// BackendConfig: &TerraformBackendConfig{},
+//
+// 		// Options: &TerraformOptions{
+// 		// 	FromModule: true,
+// 		// },
+//
+// 		// Flags: &TerraformFlags{
+// 		// 	FlagForceCopy: true,
+// 		// },
 // 	}
 //
 // 	err  = cmd.GetModule()
