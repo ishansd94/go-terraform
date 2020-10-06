@@ -11,8 +11,8 @@ import (
 )
 
 type DefaultExecute struct {
-	Writer      io.Writer
-	Dir 		string
+	Writer    io.Writer
+	Directory string
 }
 
 func (d *DefaultExecute) Execute (command string, args []string, prefix string) (*[]byte, error) {
@@ -24,7 +24,7 @@ func (d *DefaultExecute) Execute (command string, args []string, prefix string) 
 	}
 
 	cmd := exec.Command(command, args...)
-	cmd.Dir	= d.Dir
+	cmd.Dir	= d.Directory
 	cmd.Stderr = os.Stderr
 	// cmd.Stdout = d.Writer
 
