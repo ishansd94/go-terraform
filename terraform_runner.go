@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+
+	"github.com/hashicorp/hcl"
 
 	"github.com/ishansd94/terraform-go/executor"
 	"github.com/ishansd94/terraform-go/helpers"
@@ -31,10 +34,14 @@ const (
 	OperationApply   = "apply"
 	OperationPlan    = "plan"
 	OperationDestroy = "destroy"
+	OperationState   = "state"
 	OperationTaint   = "taint"
 	OperationUntaint = "untaint"
 	OperationShow    = "show"
 	OperationOutput  = "output"
+
+	ArgumentList = "list"
+	ArgumentShow = "show"
 )
 
 type Executor interface {
@@ -74,26 +81,17 @@ type TerraformOptions struct {
 type TerraformBackendConfig struct {
 }
 
-// Run method runs the terraform
+// Run method runs the terraform which used externally
 func (cmd *TerraformRunner) Run() error {
 
 	var err error
-
-	if cmd.Executor == nil {
-		cmd.Executor = &executor.DefaultExecute{
-			Directory: cmd.Directory,
-			Writer:    cmd.Writer,
-		}
-	}
 
 	args, err := cmd.GenerateArguments()
 	if err != nil {
 		return err
 	}
 
-	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, args))
-
-	output, err := cmd.Executor.Execute(TerrformBin, args, "")
+	output, err := cmd.run(args)
 	if err != nil {
 		return err
 	}
@@ -103,6 +101,27 @@ func (cmd *TerraformRunner) Run() error {
 	}
 
 	return nil
+}
+
+// Run method runs the terraform which used internally with default executor
+func (cmd *TerraformRunner) run(args []string) (*[]byte, error) {
+	var output *[]byte
+	var err error
+
+	if cmd.Executor == nil {
+		cmd.Executor = &executor.DefaultExecute{
+			Directory: cmd.Directory,
+			Writer:    cmd.Writer,
+		}
+	}
+
+	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, args))
+
+	if output, err = cmd.Executor.Execute(TerrformBin, args, ""); err != nil {
+		return nil, err
+	}
+
+	return output, nil
 }
 
 // GenerateArguments method generate the terraform arguments
@@ -133,8 +152,7 @@ func (cmd *TerraformRunner) GenerateArguments() ([]string, error) {
 			backend = cmd.GenerateBackendConfig()
 		}
 
-	case OperationApply, OperationPlan, OperationDestroy:
-		flags = append(flags, FlagAutoApprove)
+	case OperationApply, OperationDestroy, OperationPlan:
 		if len(cmd.Inputs) > 0 {
 			vars = cmd.GenerateInputs()
 		}
@@ -188,6 +206,8 @@ func (cmd *TerraformRunner) GenerateFlags() []string {
 		if cmd.Flags.FlagForceCopy {
 			flags = append(flags, FlagForceCopy)
 		}
+	case OperationApply, OperationDestroy:
+		flags = append(flags, FlagAutoApprove)
 	}
 
 	return flags
@@ -216,15 +236,12 @@ func (cmd *TerraformRunner) GenerateOptions() []string {
 // Output returns the output variables of a terraform module by running `terraform output -json`
 func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
 
-	var output *[]byte
-	var err error
 	var v map[string]interface{}
 
 	args := []string{OperationOutput, FlagJSON}
 
-	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, args))
-
-	if output, err = cmd.Executor.Execute(TerrformBin, args, ""); err != nil {
+	output, err := cmd.run(args)
+	if err != nil {
 		return nil, err
 	}
 
@@ -235,6 +252,85 @@ func (cmd *TerraformRunner) Output() (*map[string]interface{}, error) {
 	return &v, nil
 }
 
+// State returns the state of the module by running `terraform show -json`
+func (cmd *TerraformRunner) State() (*map[string]interface{}, error) {
+
+	var v map[string]interface{}
+
+	args := []string{OperationShow, FlagJSON}
+
+	output, err := cmd.run(args)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = json.Unmarshal(*output, &v); err != nil {
+		return nil, err
+	}
+
+	return &v, nil
+}
+
+func (cmd *TerraformRunner) Resources() ([]string, error) {
+	var r []string
+
+	args := []string{OperationState, ArgumentList}
+
+	output, err := cmd.run(args)
+	if err != nil {
+		return nil, err
+	}
+
+	splitFunc := func(c rune) bool {
+		return c == '\n'
+	}
+
+	r = strings.FieldsFunc(string(*output), splitFunc)
+
+	return r, nil
+}
+
+func (cmd *TerraformRunner) Resource(name string) (interface{}, error) {
+	var v interface{}
+
+	args := []string{OperationState, ArgumentShow, name}
+
+	output, err := cmd.run(args)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := hcl.Decode(&v, helpers.SanitizeHCL(string(*output))); err != nil {
+		return nil, err
+	}
+
+	return v, nil
+}
+
+func (cmd *TerraformRunner) Taint(name string) error  {
+
+	args := []string{OperationTaint, name}
+
+	_, err := cmd.run(args)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (cmd *TerraformRunner) UnTaint(name string) error  {
+
+	args := []string{OperationUntaint, name}
+
+	_, err := cmd.run(args)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // getSupportedOperations returns a list of supported terraform operations
 func getSupportedOperations() []string {
 	return []string{
@@ -242,9 +338,6 @@ func getSupportedOperations() []string {
 		OperationApply,
 		OperationPlan,
 		OperationDestroy,
-		OperationTaint,
-		OperationUntaint,
-		OperationShow,
 	}
 }
 
