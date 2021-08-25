@@ -17,19 +17,19 @@ import (
 )
 
 const (
-	TerrformBin = "terraform"
+	TerraformBin = "terraform"
 
-	// Terraform Flags
+	// FlagAutoApprove Terraform Flags
 	FlagAutoApprove = "-auto-approve"
 	FlagForceCopy   = "-force-copy"
 	FlagJSON        = "-json"
 
-	// Terraform Options
+	// OptionBackendConfig Terraform Options
 	OptionBackendConfig = "-backend-config"
 	OptionVar           = "-var"
 	OptionFromModule    = "-from-module"
 
-	// Terraform actions
+	// OperationInit Terraform actions
 	OperationInit    = "init"
 	OperationApply   = "apply"
 	OperationPlan    = "plan"
@@ -115,9 +115,9 @@ func (cmd *TerraformRunner) run(args []string) (*[]byte, error) {
 		}
 	}
 
-	cmd.debug(fmt.Sprintf("Running %s %s\n", TerrformBin, args))
+	cmd.debug(fmt.Sprintf("Running %s %s\n", TerraformBin, args))
 
-	if output, err = cmd.Executor.Execute(TerrformBin, args, ""); err != nil {
+	if output, err = cmd.Executor.Execute(TerraformBin, args, ""); err != nil {
 		return nil, err
 	}
 
